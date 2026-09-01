@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -44,6 +45,17 @@ app = FastAPI(
     description="基于 FastAPI + DeepSeek 的聊天机器人后端",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+# ---------- CORS 中间件：允许跨域请求（兼容不同部署方式） ----------
+# 同源部署（前后端都走 127.0.0.1:8000）时本来不需要 CORS
+# 但加上 CORS 更安全，即便以后前端跑在其他端口/域名也能正常访问
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],           # 演示环境放开所有来源；生产环境请替换为具体域名
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -100,10 +112,10 @@ async def chat(req: ChatRequest):
     # 把 AI 回复也记进历史，实现多轮对话
     conversation_history.append({"role": "assistant", "content": bot_reply})
 
-    # 控制历史长度，避免上下文无限膨胀
-    if len(conversation_history) > 20:
-        conversation_history.pop(0)
-        conversation_history.pop(0)
+    # 控制历史长度，用切片直接保留最后 20 条（比 pop 两次更健壮，不怕长度奇偶）
+    MAX_HISTORY = 20
+    if len(conversation_history) > MAX_HISTORY:
+        conversation_history[:] = conversation_history[-MAX_HISTORY:]
 
     return ChatResponse(reply=bot_reply, history_size=len(conversation_history))
 
