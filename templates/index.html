@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>套壳聊天机器人</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+  }
+  .chat-container {
+    width: 100%;
+    max-width: 640px;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.25);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    height: 80vh;
+    max-height: 720px;
+  }
+  .chat-header {
+    background: #667eea;
+    color: #fff;
+    padding: 16px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .chat-header h1 { font-size: 18px; }
+  .chat-header button {
+    background: rgba(255,255,255,.2);
+    border: none;
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .chat-header button:hover { background: rgba(255,255,255,.3); }
+
+  .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    background: #f7f8fc;
+  }
+  .message { margin-bottom: 14px; display: flex; }
+  .message.user { justify-content: flex-end; }
+  .message .bubble {
+    max-width: 75%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .message.user .bubble { background: #667eea; color: #fff; border-bottom-right-radius: 4px; }
+  .message.bot   .bubble { background: #fff; color: #333; border-bottom-left-radius: 4px;
+                           box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .message.error .bubble { background: #ffe0e0; color: #c0392b; }
+
+  .chat-input {
+    display: flex;
+    padding: 12px;
+    border-top: 1px solid #eee;
+    background: #fff;
+  }
+  .chat-input textarea {
+    flex: 1;
+    resize: none;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    min-height: 42px;
+    max-height: 120px;
+  }
+  .chat-input textarea:focus { border-color: #667eea; }
+  .chat-input button {
+    margin-left: 10px;
+    padding: 0 20px;
+    background: #667eea;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .chat-input button:hover { background: #5a6fd6; }
+  .chat-input button:disabled { background: #a0aec0; cursor: not-allowed; }
+
+  .hint { color: #888; font-size: 12px; padding: 4px 12px 8px; text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="chat-container">
+  <div class="chat-header">
+    <h1>🤖 套壳聊天机器人</h1>
+    <button onclick="clearChat()">清空对话</button>
+  </div>
+
+  <div class="chat-messages" id="messages">
+    <div class="message bot"><div class="bubble">你好！我是基于 DeepSeek 的套壳聊天机器人。有什么想问的尽管说～</div></div>
+  </div>
+
+  <div class="chat-input">
+    <textarea id="input" placeholder="输入消息… 按 Enter 发送，Shift+Enter 换行"></textarea>
+    <button id="sendBtn" onclick="sendMessage()">发送</button>
+  </div>
+  <div class="hint">Enter 发送 · Shift+Enter 换行</div>
+</div>
+
+<script>
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('sendBtn');
+const messagesEl = document.getElementById('messages');
+
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+async function sendMessage() {
+  const text = input.value.trim();
+  if (!text) return;
+
+  appendMessage('user', text);
+  input.value = '';
+  sendBtn.disabled = true;
+  appendMessage('bot', '思考中…');
+
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text }),
+    });
+    const data = await res.json();
+
+    // 移除刚才那句 "思考中…"
+    messagesEl.removeChild(messagesEl.lastElementChild);
+
+    if (res.ok) {
+      appendMessage('bot', data.reply);
+    } else {
+      appendMessage('error', data.error || '出错了');
+    }
+  } catch (err) {
+    messagesEl.removeChild(messagesEl.lastElementChild);
+    appendMessage('error', '网络错误：' + err.message);
+  } finally {
+    sendBtn.disabled = false;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+}
+
+function appendMessage(role, text) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'message ' + role;
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.textContent = text;
+  wrapper.appendChild(bubble);
+  messagesEl.appendChild(wrapper);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+async function clearChat() {
+  try { await fetch('/clear', { method: 'POST' }); } catch (e) {}
+  messagesEl.innerHTML = '';
+  appendMessage('bot', '对话已清空，重新开始吧～');
+}
+</script>
+</body>
+</html>
