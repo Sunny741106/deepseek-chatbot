@@ -1,52 +1,102 @@
 [
   {
-    "time": "15:16:26",
+    "time": "15:31:34",
     "tag": "用户输入",
-    "msg": "现在几点了？"
+    "msg": "帮我查一下 psf/requests 这个仓库有多少星"
   },
   {
-    "time": "15:16:26",
+    "time": "15:31:34",
     "tag": "Loop 1",
     "msg": "调 LLM，messages 共 2 条"
   },
   {
-    "time": "15:16:27",
+    "time": "15:31:36",
     "tag": "LLM 返回",
     "msg": "content="
   },
   {
-    "time": "15:16:27",
+    "time": "15:31:36",
     "tag": "检测到 tool_calls",
     "msg": "1 个"
   },
   {
-    "time": "15:16:27",
+    "time": "15:31:36",
     "tag": "执行工具",
-    "msg": "get_current_time({'timezone': 'Asia/Shanghai'})"
+    "msg": "get_github_repo_info({'owner': 'psf', 'repo': 'requests'})"
   },
   {
-    "time": "15:16:27",
+    "time": "15:31:37",
     "tag": "工具结果",
-    "msg": "当前时间是：2026-09-09 15:16:27，时区 Asia/Shanghai"
+    "msg": "{\"full_name\": \"psf/requests\", \"stars\": 54291, \"forks\": 10132, \"language\": \"Python\", \"description\": \"A simple, yet elegant, HTTP library.\"}"
   },
   {
-    "time": "15:16:27",
+    "time": "15:31:37",
     "tag": "回传",
-    "msg": "role=tool, tool_call_id=call_00_diN6zPgDyKaISMs1hSmS2258"
+    "msg": "role=tool, tool_call_id=call_00_pzSobAKSFXka3lvg8tGV6399"
   },
   {
-    "time": "15:16:27",
+    "time": "15:31:37",
     "tag": "Loop 2",
     "msg": "调 LLM，messages 共 4 条"
   },
   {
-    "time": "15:16:28",
+    "time": "15:31:38",
     "tag": "LLM 返回",
-    "msg": "content=当前时间是 **2026年9月9日 下午3点16分27秒**（北京时间，Asia/Shanghai 时区）。"
+    "msg": "content=根据查询结果，**psf/requests** 仓库目前有 **54,291 颗星**（Star）。\n\n其他相关信息：\n- **Forks**: 10,132\n- **语言**: Python\n- **简介**: A simple, yet elegant, HTTP library."
   },
   {
-    "time": "15:16:28",
+    "time": "15:31:38",
     "tag": "最终回答",
-    "msg": "当前时间是 **2026年9月9日 下午3点16分27秒**（北京时间，Asia/Shanghai 时区）。"
+    "msg": "根据查询结果，**psf/requests** 仓库目前有 **54,291 颗星**（Star）。\n\n其他相关信息：\n- **Forks**: 10,132\n- **语言**: Python\n- **简介**: A simple, yet elegant, HTTP library."
+  },
+  {
+    "time": "15:31:44",
+    "tag": "用户输入",
+    "msg": "帮我查一下 foo/bar_xyz_not_exist 这个仓库"
+  },
+  {
+    "time": "15:31:44",
+    "tag": "Loop 1",
+    "msg": "调 LLM，messages 共 4 条"
+  },
+  {
+    "time": "15:31:46",
+    "tag": "LLM 返回",
+    "msg": "content="
+  },
+  {
+    "time": "15:31:46",
+    "tag": "检测到 tool_calls",
+    "msg": "1 个"
+  },
+  {
+    "time": "15:31:46",
+    "tag": "执行工具",
+    "msg": "get_github_repo_info({'owner': 'foo', 'repo': 'bar_xyz_not_exist'})"
+  },
+  {
+    "time": "15:31:46",
+    "tag": "工具结果",
+    "msg": "【仓库不存在】请求的资源不存在（仓库名/用户名可能拼错了，或者是私有仓库）。请检查用户名和仓库名是否拼写正确（区分大小写）。"
+  },
+  {
+    "time": "15:31:46",
+    "tag": "回传",
+    "msg": "role=tool, tool_call_id=call_00_HHfHbgUpTvSJNTQT9mFG6343"
+  },
+  {
+    "time": "15:31:46",
+    "tag": "Loop 2",
+    "msg": "调 LLM，messages 共 6 条"
+  },
+  {
+    "time": "15:31:47",
+    "tag": "LLM 返回",
+    "msg": "content=很抱歉，查询结果显示 **foo/bar_xyz_not_exist** 这个仓库**不存在**。\n\n可能的原因：\n- 用户名或仓库名拼写错误（注意区分大小写）\n- 该仓库是私有的，无法公开访问\n- 该仓库已被删除或从未创建\n\n建议您确认一下用户名和仓库名是否拼写正确。"
+  },
+  {
+    "time": "15:31:47",
+    "tag": "最终回答",
+    "msg": "很抱歉，查询结果显示 **foo/bar_xyz_not_exist** 这个仓库**不存在**。\n\n可能的原因：\n- 用户名或仓库名拼写错误（注意区分大小写）\n- 该仓库是私有的，无法公开访问\n- 该仓库已被删除或从未创建\n\n建议您确认一下用户名和仓库名是否拼写正确。"
   }
 ]
