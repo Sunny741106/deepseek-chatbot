@@ -83,6 +83,71 @@ Loop 2：把工具结果塞回 messages，再调 LLM
 
 ---
 
+## 🔒 Token 泄露风险与处理方式
+
+### 风险
+
+GitHub Token 和 DeepSeek API Key 等密钥相当于账户密码。一旦泄露，攻击者可以：
+- **GitHub Token 泄露**：冒充你的身份操作仓库（删仓库、改代码、读私有仓库），消耗你的 API 配额
+- **DeepSeek API Key 泄露**：盗用你的调用额度，产生费用
+
+### 防护措施（本项目已做到）
+
+1. **密钥不入源码**：`github_client.py` 通过 `os.getenv("GITHUB_TOKEN")` 读取，源码中无硬编码
+2. **.gitignore 排除 .env**：`.gitignore` 文件第一行即为 `.env`，确保 `git add` 时不会将密钥文件纳入版本控制
+3. **单元测试用假 Token**：`test_github_client.py` 中所有 Token 均为 `ghp_test_bearer` 等假值，不涉及真实凭据
+
+### 万一泄露了怎么办（Revoke 流程）
+
+如果发现 Token 已经泄露（比如不小心 `git push` 了 `.env`）：
+
+1. **立即 Revoke（吊销）已泄露的 Token**
+   - GitHub：打开 https://github.com/settings/tokens → 找到泄露的 Token → 点击 **Delete（删除）** 即可 Revoke
+   - DeepSeek：打开 https://platform.deepseek.com/api_keys → 删除泄露的 Key
+
+2. **清除 Git 历史中的密钥**（如果 .env 曾被提交过）
+   - 从 Git 历史中移除该文件：`git filter-branch --force --index-filter "git rm --cached --ignore-unmatch .env" --prune-empty --tag-name-filter cat -- --all`
+   - 或者使用 [BFG Repo-Cleaner](https://rtyley.github.io/bfg-repo-cleaner/) 清理
+   - 然后强制推送：`git push --force`
+
+3. **重新生成新 Token**，填入本地 `.env`，确认 `.gitignore` 生效后再提交
+
+> 关键原则：**Revoke 越早越好**，泄露的 Token 在 Revoke 之前一直有效。
+
+---
+
+## 🧪 单元测试
+
+运行命令：
+```bash
+python -m unittest test_github_client -v
+```
+
+测试输出（6 个测试全部通过）：
+```
+test_401_returns_dict_error ... ok
+test_404_returns_dict_error ... ok
+test_bearer_header ... ok
+test_rate_limit_no_infinite_retry ... ok
+test_rate_limit_retry_after_retry_once ... ok
+test_success_returns_dict ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.055s
+
+OK
+```
+
+测试覆盖：
+- Bearer 请求头格式
+- 成功返回 {ok:True, data}
+- 401 返回 {ok:False, code:401, error}
+- 404 返回 {ok:False, code:404, error}
+- 限流按 Retry-After 退避重试一次成功
+- 限流不无限重试（有次数上限）
+
+---
+
 ## 🤖 Agent 和普通聊天机器人有什么区别？
 
 我理解主要有 **3 点核心区别**：
