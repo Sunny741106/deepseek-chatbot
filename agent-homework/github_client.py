@@ -4,7 +4,7 @@ github_client.py — GitHub REST API 轻量客户端
 封装了：
   ✅ 自动带 Token 请求头（Authorization: Bearer <token>）
   ✅ 区分三种错误：401 认证失败 / 403 限流 / 404 不存在
-  ✅ 403 限流时按 Retry-After 退避，自动重试一次
+  ✅ 403 限流时按 Retry-After 退避，最多重试一次（有次数上限，不会无限重试）
   ✅ 所有错误以结构化字典 {ok:False, code, error} 返回（不静默吞掉）
   ✅ 成功以 {ok:True, data} 返回
 """
@@ -42,12 +42,45 @@ class GitHubClient:
         if self.token:
             self.session.headers["Authorization"] = f"Bearer {self.token}"
 
-    # ---------- 核心：带错误分类 + 限流重试的请求方法 ----------
+    # ---------- 核心：带错误分类 + 有限次数限流重试的请求方法 ----------
 
-    def request(self, method: str, path: str, **kwargs) -> dict:
+    def request(self, method: str, path: str, max_retries: int = 1, **kwargs) -> dict:
         """
         发起一次 GitHub API 请求。
-        返回结构化字典，成功时 {ok:True, data}, 失败时 {ok:False, code, error}。
+
+        成功时 {ok:True, data}；失败时 {ok:False, code, error}。
+
+        Args:
+            method: "GET" / "POST"...
+            path:   "/repos/psf/requests" 这种，自动拼 BASE_URL
+            max_retries: 404 限流时的最大重试次数（默认 1，即最多额外再试一次）。
+                         重试次数受此参数限制，不会无限重试。
+            **kwargs: 透传给 requests.request 的参数
+        """
+        # 有限循环：1 次原始请求 + max_retries 次限流重试
+        for attempt in range(max_retries + 1):
+            result = self._single_request(method, path, **kwargs)
+
+            # 成功 → 直接返回
+            if result["ok"]:
+                return result
+
+            # 只有"限流"错误才值得重试；且已到重试上限 → 不再重试
+            is_rate_limit = result["code"] == 403 and result.get("retry_after") is not None
+            if not is_rate_limit or attempt >= max_retries:
+                return result
+
+            # 限流且还有重试机会 → 按 Retry-After 退避后进入下一轮循环
+            wait_sec = result["retry_after"]
+            time.sleep(wait_sec)
+
+        # 不会走到这里（循环每次都会 return），仅作兜底
+        return {"ok": False, "code": None, "error": "未知错误"}
+
+    def _single_request(self, method: str, path: str, **kwargs) -> dict:
+        """
+        真正发一次 HTTP 请求并分类返回。不做任何重试。
+        额外信息（如 retry_after）以键形式附加，供上层决定是否重试。
         """
         url = f"{self.BASE_URL}{path}"
 
@@ -87,27 +120,20 @@ class GitHubClient:
                 else:
                     wait_sec = 60
 
-                # ⭐ 按 Retry-After 退避一次重试
-                if wait_sec <= 300:  # 超过 5 分钟就不等了
-                    time.sleep(wait_sec)
-                    retry_result = self.request(method, path, **kwargs)
-                    if retry_result.get("ok"):
-                        return retry_result  # 重试成功！
-                    # 重试也失败：把原 403 限流信息带出来
+                # 等待时间过长（>300s）就不重试了，直接返回错误
+                if wait_sec > 300:
                     return {
                         "ok": False,
                         "code": 403,
-                        "error": (
-                            f"触发 GitHub API 限流（Retry-After={wait_sec}s），"
-                            f"重试后仍失败：{retry_result.get('error')}"
-                        ),
+                        "error": f"触发 GitHub API 限流，等待时间过长（{wait_sec}s），建议稍后手动重试",
                     }
 
-                # 限流时间太长，不等待直接返回
+                # 标记为可重试的限流，retry_after 供上层控制退避
                 return {
                     "ok": False,
                     "code": 403,
-                    "error": f"触发 GitHub API 限流，等待时间过长（{wait_sec}s），建议稍后手动重试",
+                    "retry_after": wait_sec,
+                    "error": f"触发 GitHub API 限流，等待 {wait_sec}s 后再试",
                 }
             else:
                 # 非限流的 403
