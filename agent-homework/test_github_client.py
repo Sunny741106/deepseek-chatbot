@@ -114,6 +114,33 @@ class GitHubClientTest(unittest.TestCase):
         # 确实请求了两次（一次失败 + 一次重试）
         self.assertEqual(mock_req.call_count, 2)
 
+    # ---------- 测试 6：限流重试有次数上限，不会无限重试 ----------
+
+    @mock.patch("time.sleep")
+    @mock.patch("github_client.requests.Session.request")
+    def test_rate_limit_no_infinite_retry(self, mock_req, mock_sleep):
+        # 每次都返回 403 限流（永远成功不了）。若逻辑是无限重试，会请求无数次。
+        def always_limited(*args, **kwargs):
+            return fake_response(
+                403,
+                {"message": "rate limited"},
+                headers={"Retry-After": "1"},
+            )
+
+        mock_req.side_effect = always_limited
+
+        client = GitHubClient(token="t")
+        result = client.get("some/path")
+
+        # 最终返回的是 403 错误（不成功也不死循环）
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["code"], 403)
+
+        # 关键：请求次数 = 原始 1 次 + 重试 1 次 = 2 次，绝不超过
+        self.assertEqual(mock_req.call_count, 2)
+        # sleep 也只退避了 1 次
+        self.assertEqual(mock_sleep.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
