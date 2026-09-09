@@ -2,16 +2,16 @@
 tools.py — Agent 的工具箱
 
 每个工具函数 + 对应的 JSON Schema（告诉大模型怎么用）
+GitHub 相关工具通过 github_client.GitHubClient 调用
 """
 
-import os
 import json
 import datetime
-import requests
-from dotenv import load_dotenv
 
-load_dotenv()
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+from github_client import GitHubClient
+
+# 全局客户端实例（自动从 .env 读 Token）
+_gh = GitHubClient()
 
 
 # ========== 工具 1：获取当前时间（内置，不需要网络） ==========
@@ -22,7 +22,6 @@ def get_current_time(timezone: str = "Asia/Shanghai") -> str:
     return f"当前时间是：{now.strftime('%Y-%m-%d %H:%M:%S')}，时区 {timezone}"
 
 
-# get_current_time 的 JSON Schema（给大模型看的"说明书"）
 GET_CURRENT_TIME_SCHEMA = {
     "type": "function",
     "function": {
@@ -41,37 +40,39 @@ GET_CURRENT_TIME_SCHEMA = {
 }
 
 
-# ========== 工具 2：GitHub 仓库信息（需要 Token） ==========
+# ========== 工具 2：GitHub 仓库信息（用 GitHubClient） ==========
 
 def get_github_repo_info(owner: str, repo: str) -> str:
     """
-    用 GitHub API 获取仓库信息。
-    返回：格式化后的仓库信息字符串（方便大模型直接回答）
+    用 GitHubClient 查询仓库信息。
+    自动处理 Token / 401 / 404 / 限流重试。
+    返回：结构化的 JSON 字符串（成功）或带错误类型的提示（失败）
     """
-    if not GITHUB_TOKEN or GITHUB_TOKEN == "在这里填你的Token":
-        return "错误：还没配置 GitHub Token，无法调用此工具。"
+    result = _gh.get_repo(owner, repo)
 
-    url = f"https://api.github.com/repos/{owner}/{repo}"
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json",
-    }
+    # 成功 → 返回整理好的 JSON
+    if result.ok:
+        info = result.data
+        return json.dumps({
+            "full_name": info["full_name"],
+            "stars": info["stargazers_count"],
+            "forks": info["forks_count"],
+            "language": info.get("language"),
+            "description": info["description"],
+        }, ensure_ascii=False)
 
-    try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code == 200:
-            info = resp.json()
-            return json.dumps({
-                "full_name": info["full_name"],
-                "stars": info["stargazers_count"],
-                "forks": info["forks_count"],
-                "language": info.get("language"),
-                "description": info["description"],
-            }, ensure_ascii=False)
-        else:
-            return f"错误：GitHub API 返回 {resp.status_code}"
-    except Exception as e:
-        return f"错误：请求失败 {e}"
+    # 失败 → 按 error_type 返回不同的人类可读提示
+    err = result
+    if err.error_type == "auth":
+        return f"【认证错误】{err.message}"
+    elif err.error_type == "not_found":
+        return f"【仓库不存在】{err.message}。请检查用户名和仓库名是否拼写正确（区分大小写）。"
+    elif err.error_type == "rate_limit":
+        return f"【限流】{err.message}。请稍后再试，或等 {err.retry_after} 秒后重试。"
+    elif err.error_type == "network":
+        return f"【网络错误】{err.message}"
+    else:
+        return f"【GitHub API 错误 {err.status_code}】{err.message}"
 
 
 GET_GITHUB_REPO_INFO_SCHEMA = {
@@ -99,19 +100,16 @@ GET_GITHUB_REPO_INFO_SCHEMA = {
 
 # ========== 注册表 ==========
 
-# 工具函数列表（给任务 1 的旧代码兼容用）
 AVAILABLE_TOOLS = [
     get_current_time,
     get_github_repo_info,
 ]
 
-# JSON Schema 列表（给大模型看的"工具菜单"）
 TOOL_SCHEMAS = [
     GET_CURRENT_TIME_SCHEMA,
     GET_GITHUB_REPO_INFO_SCHEMA,
 ]
 
-# 函数名 → 实际函数 的映射表（Agent Loop 里根据名字调）
 TOOL_MAP = {
     "get_current_time": get_current_time,
     "get_github_repo_info": get_github_repo_info,
@@ -119,9 +117,15 @@ TOOL_MAP = {
 
 
 if __name__ == "__main__":
-    print("=== 测试 tools.py ===")
+    print("=== 测试 tools.py（重构版，用 GitHubClient）===")
     print(get_current_time())
     print()
     print("Schema 列表：")
     for s in TOOL_SCHEMAS:
         print(f"  - {s['function']['name']}")
+    print()
+    print("--- 正常仓库 ---")
+    print(get_github_repo_info("psf", "requests"))
+    print()
+    print("--- 不存在的仓库 ---")
+    print(get_github_repo_info("foo", "bar_xyz_not_exist"))
