@@ -99,11 +99,67 @@ python agent.py --trace
 🤖 Agent：**psf/requests** 仓库目前有 **54,286 颗星**，**10,131 个 Fork**，...
 ```
 
+### role="tool" 回传的关键代码片段（agent.py run_agent_loop）
+
+```python
+# 工具执行完，必须以 role="tool" + tool_call_id 塞回 messages
+# 这样 LLM 才能看到工具返回值，基于它生成最终回答
+for tc in tool_calls:
+    tc_id = tc["id"]                          # 模型给的调用 ID
+    func_name = tc["function"]["name"]
+    func_args = json.loads(tc["function"]["arguments"])
+
+    # 1. 执行工具
+    tool_fn = TOOL_MAP[func_name]
+    tool_result = str(tool_fn(**func_args))
+
+    # 2. ⭐ 构造 role="tool" 消息并回传 — 这是闭环的关键！
+    messages.append({
+        "role": "tool",                       # 固定字段：告诉模型这是工具返回
+        "tool_call_id": tc_id,                # 必须和上面 tc["id"] 一致
+        "name": func_name,                    # 工具名
+        "content": tool_result,               # 工具真实返回值
+    })
+```
+
+运行时 trace 里可看到：
+```
+🔍 [检测到 tool_calls] 1 个
+🔍 [执行工具] get_current_time({'timezone': 'Asia/Shanghai'})
+🔍 [工具结果] 当前时间是：2026-09-09 15:16:27，时区 Asia/Shanghai
+🔍 [回传] role=tool, tool_call_id=call_00_diN6zPgDyKaISMs1hSmS2258   ← 关键证据
+🔍 [Loop 2] 调 LLM，messages 共 4 条
+🔍 [最终回答] 当前时间是 2026年9月9日 下午3点16分27秒
+```
+
+### 💡 为什么工具结果必须回传给模型？
+
+这是 Agent 闭环的核心设计，原因有三：
+
+**1. LLM 根本看不到工具执行结果**
+我们代码里直接 `print(tool_result)` — 这只是打印在终端，LLM 完全不知道执行返回了什么。LLM 的"眼睛"就是 messages 列表，如果不把结果塞进 messages，它就当工具什么都没返回。
+
+**2. 最终回答必须基于工具返回值生成**
+用户问"现在几点了？"，工具返回 `15:16:27`。如果不把这个数字给 LLM，它怎么回答？只能瞎编。**把结果回传后，LLM 才能基于真实数据生成自然语言回答**："现在是下午 3 点 16 分"。
+
+**3. 多工具串联时更关键**
+假设一个任务需要：先调 GitHub API 拿仓库信息 → 再调另一个工具分析代码 → 最后总结。每一步的返回值都是下一步的输入，不回传就断链了。
+
+```
+如果只是 print 工具结果 → LLM 看不到 → 只能瞎编
+如果是 role="tool" 回传 → LLM 能看到真实数据 → 生成准确回答 ✅
+```
+
+### --trace 生成的 agent_trace.json
+
+已在仓库根目录上传实际运行生成的 [agent_trace.json](https://github.com/Sunny741106/deepseek-chatbot/blob/main/agent-homework/agent_trace.json)，共 10 条记录，包含完整闭环轨迹（用户输入 → Loop1 调 LLM → tool_calls → 执行 → role=tool 回传 → Loop2 调 LLM → 最终回答）。
+
 ### 关键实现确认
 
 | 要求 | 实现 |
 |---|---|
 | JSON Schema 声明工具 | tools.py 中 GET_CURRENT_TIME_SCHEMA / GET_GITHUB_REPO_INFO_SCHEMA |
 | 模型自主决定调用 | chat_with_tools() 传 tools + tool_choice="auto" |
-| 执行 → 回传 → 回答闭环 | run_agent_loop() 循环检测 tool_calls |
-| --trace 输出轨迹 | --trace 参数 → log() 打印 Loop/工具/结果 |
+| 执行 → 回传 → 回答闭环 | run_agent_loop() 循环检测 tool_calls，用 role="tool" 回传 |
+| --trace 写入文件 | log() 追加 trace_log，save_trace() 写 agent_trace.json |
+| 解释回传原因 | 见上方"为什么工具结果必须回传给模型"段落 |
