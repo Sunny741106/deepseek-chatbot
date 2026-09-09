@@ -6,13 +6,14 @@ agent.py — GitHub 项目分析 Agent（任务 2 版本）
 
 用法：
   python agent.py                # 正常对话
-  python agent.py --trace        # 带执行轨迹
+  python agent.py --trace        # 打印轨迹 + 写入 agent_trace.json
 """
 
 import os
 import sys
 import json
 import argparse
+import datetime
 import requests
 from dotenv import load_dotenv
 
@@ -22,6 +23,7 @@ load_dotenv()
 API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
 MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+TRACE_FILE = "agent_trace.json"
 
 
 class GitHubAnalystAgent:
@@ -30,6 +32,8 @@ class GitHubAnalystAgent:
     def __init__(self, trace: bool = False):
         self.trace = trace
         self.history: list[dict] = []
+        # trace 记录列表（写入 agent_trace.json）
+        self.trace_log: list[dict] = []
         self.system_prompt = {
             "role": "system",
             "content": (
@@ -38,25 +42,31 @@ class GitHubAnalystAgent:
                 "回答要简洁、准确。"
             ),
         }
-        self.max_loops = 5  # 防止无限循环
+        self.max_loops = 5
 
     # ---------- 调试输出 ----------
 
     def log(self, tag: str, msg: str):
-        """只有 --trace 时才打印轨迹"""
+        """同时：控制台 print + 追加到 trace_log"""
+        entry = {
+            "time": datetime.datetime.now().strftime("%H:%M:%S"),
+            "tag": tag,
+            "msg": msg,
+        }
+        self.trace_log.append(entry)
         if self.trace:
             print(f"  🔍 [{tag}] {msg}")
+
+    def save_trace(self):
+        """把 trace_log 写到 agent_trace.json"""
+        with open(TRACE_FILE, "w", encoding="utf-8") as f:
+            json.dump(self.trace_log, f, ensure_ascii=False, indent=2)
+        if self.trace:
+            print(f"\n📄 执行轨迹已写入 {TRACE_FILE}（{len(self.trace_log)} 条）")
 
     # ---------- 核心：带工具的 LLM 调用 ----------
 
     def chat_with_tools(self, messages: list[dict]) -> dict:
-        """
-        调 LLM，传入 tools 参数，返回完整的 response message。
-        这个 message 可能包含 content，也可能包含 tool_calls。
-        """
-        if not API_KEY:
-            raise RuntimeError("未配置 DEEPSEEK_API_KEY")
-
         payload = {
             "model": MODEL,
             "messages": messages,
@@ -83,48 +93,41 @@ class GitHubAnalystAgent:
     def run_agent_loop(self, user_input: str) -> str:
         """
         Agent Loop 核心闭环：
-        1. 把用户消息加进历史
-        2. 调 LLM（带 tools）
-        3. 检查有没有 tool_calls
-           - 有：执行工具 → 把结果塞回 messages → 再调 LLM（循环）
-           - 没有：拿到 content 作为最终回答
-        4. 最多循环 max_loops 次，防止死循环
+        1. 用户入队 → 调 LLM
+        2. 有 tool_calls → 执行 → 以 role="tool" + tool_call_id 回传
+        3. 再调 LLM → 直到没有 tool_calls → 拿 content 当最终回答
         """
-        # Step 1：用户入队
         self.history.append({"role": "user", "content": user_input})
         messages = [self.system_prompt] + self.history
+
+        self.log("用户输入", user_input)
 
         for loop_idx in range(1, self.max_loops + 1):
             self.log(f"Loop {loop_idx}", f"调 LLM，messages 共 {len(messages)} 条")
 
-            # Step 2：调 LLM
             assistant_msg = self.chat_with_tools(messages)
             self.log("LLM 返回", f"content={assistant_msg.get('content', '(空)')}")
 
-            # Step 3：有工具调用吗？
             tool_calls = assistant_msg.get("tool_calls")
 
             if not tool_calls:
-                # 没有工具调用 → 就是最终回答
                 reply = assistant_msg["content"].strip()
                 self.history.append(assistant_msg)
-                self.log("最终回答", reply[:100] + ("..." if len(reply) > 100 else ""))
+                self.log("最终回答", reply[:200] + ("..." if len(reply) > 200 else ""))
                 return reply
 
-            # 有工具调用 → 执行
             self.log("检测到 tool_calls", f"{len(tool_calls)} 个")
 
-            # 把 assistant 的 tool_calls 也加进 messages（下次要带着）
+            # assistant 的 tool_calls 加进 messages
             messages.append(assistant_msg)
 
             for tc in tool_calls:
                 tc_id = tc["id"]
                 func_name = tc["function"]["name"]
-                func_args = json.loads(tc["function"]["arguments"])  # JSON 字符串 → dict
+                func_args = json.loads(tc["function"]["arguments"])
 
                 self.log("执行工具", f"{func_name}({func_args})")
 
-                # 查函数 → 调用
                 tool_fn = TOOL_MAP.get(func_name)
                 if tool_fn is None:
                     tool_result = f"错误：找不到工具 {func_name}"
@@ -134,22 +137,21 @@ class GitHubAnalystAgent:
                     except Exception as e:
                         tool_result = f"工具执行出错：{e}"
 
-                self.log("工具结果", tool_result[:150] + ("..." if len(tool_result) > 150 else ""))
+                self.log("工具结果", tool_result[:200] + ("..." if len(tool_result) > 200 else ""))
 
-                # 工具结果以 role="tool" 塞回 messages
+                # ⭐ 关键：工具结果以 role="tool" + tool_call_id 回传
+                # 验收官要求：必须有 role="tool" 和对应的 tool_call_id
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc_id,
                     "name": func_name,
                     "content": tool_result,
                 })
+                self.log("回传", f"role=tool, tool_call_id={tc_id}")
 
-            # 继续下一轮循环（再调一次 LLM）
-
-        # 超过最大循环次数
         return "⚠️  工具调用太多轮了，停止执行。"
 
-    # ---------- CLI 入口 ----------
+    # ---------- CLI ----------
 
     def greet(self):
         print("=" * 55)
@@ -164,30 +166,34 @@ class GitHubAnalystAgent:
         self.greet()
         print("\n💡 试试问：'现在几点了？' 或 '帮我查一下 psf/requests 仓库'")
 
-        while True:
-            try:
-                user_input = input("\n🙋 你：").strip()
-            except (EOFError, KeyboardInterrupt):
-                print("\n👋 再见！")
-                break
+        try:
+            while True:
+                try:
+                    user_input = input("\n🙋 你：").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print("\n👋 再见！")
+                    break
 
-            if not user_input:
-                continue
-            if user_input.lower() in ("quit", "exit", "退出"):
-                print("👋 再见！下次见～")
-                break
+                if not user_input:
+                    continue
+                if user_input.lower() in ("quit", "exit", "退出"):
+                    print("👋 再见！下次见～")
+                    break
 
-            print("🤖 Agent：思考中...")
-            try:
-                reply = self.run_agent_loop(user_input)
-                print(f"🤖 Agent：{reply}")
-            except RuntimeError as e:
-                print(f"❌ 出错：{e}")
+                print("🤖 Agent：思考中...")
+                try:
+                    reply = self.run_agent_loop(user_input)
+                    print(f"🤖 Agent：{reply}")
+                except RuntimeError as e:
+                    print(f"❌ 出错：{e}")
+        finally:
+            # 无论正常退出还是 Ctrl+C，都写 trace 文件
+            self.save_trace()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GitHub Agent")
-    parser.add_argument("--trace", action="store_true", help="输出执行轨迹")
+    parser.add_argument("--trace", action="store_true", help="打印执行轨迹 + 写入 agent_trace.json")
     args = parser.parse_args()
 
     agent = GitHubAnalystAgent(trace=args.trace)
