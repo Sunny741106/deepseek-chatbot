@@ -1,0 +1,52 @@
+[
+  {
+    "time": "15:16:26",
+    "tag": "用户输入",
+    "msg": "现在几点了？"
+  },
+  {
+    "time": "15:16:26",
+    "tag": "Loop 1",
+    "msg": "调 LLM，messages 共 2 条"
+  },
+  {
+    "time": "15:16:27",
+    "tag": "LLM 返回",
+    "msg": "content="
+  },
+  {
+    "time": "15:16:27",
+    "tag": "检测到 tool_calls",
+    "msg": "1 个"
+  },
+  {
+    "time": "15:16:27",
+    "tag": "执行工具",
+    "msg": "get_current_time({'timezone': 'Asia/Shanghai'})"
+  },
+  {
+    "time": "15:16:27",
+    "tag": "工具结果",
+    "msg": "当前时间是：2026-09-09 15:16:27，时区 Asia/Shanghai"
+  },
+  {
+    "time": "15:16:27",
+    "tag": "回传",
+    "msg": "role=tool, tool_call_id=call_00_diN6zPgDyKaISMs1hSmS2258"
+  },
+  {
+    "time": "15:16:27",
+    "tag": "Loop 2",
+    "msg": "调 LLM，messages 共 4 条"
+  },
+  {
+    "time": "15:16:28",
+    "tag": "LLM 返回",
+    "msg": "content=当前时间是 **2026年9月9日 下午3点16分27秒**（北京时间，Asia/Shanghai 时区）。"
+  },
+  {
+    "time": "15:16:28",
+    "tag": "最终回答",
+    "msg": "当前时间是 **2026年9月9日 下午3点16分27秒**（北京时间，Asia/Shanghai 时区）。"
+  }
+]
