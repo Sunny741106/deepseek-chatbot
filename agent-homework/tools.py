@@ -51,8 +51,8 @@ def get_github_repo_info(owner: str, repo: str) -> str:
     result = _gh.get_repo(owner, repo)
 
     # 成功 → 返回整理好的 JSON
-    if result.ok:
-        info = result.data
+    if result["ok"]:
+        info = result["data"]
         return json.dumps({
             "full_name": info["full_name"],
             "stars": info["stargazers_count"],
@@ -61,18 +61,19 @@ def get_github_repo_info(owner: str, repo: str) -> str:
             "description": info["description"],
         }, ensure_ascii=False)
 
-    # 失败 → 按 error_type 返回不同的人类可读提示
-    err = result
-    if err.error_type == "auth":
-        return f"【认证错误】{err.message}"
-    elif err.error_type == "not_found":
-        return f"【仓库不存在】{err.message}。请检查用户名和仓库名是否拼写正确（区分大小写）。"
-    elif err.error_type == "rate_limit":
-        return f"【限流】{err.message}。请稍后再试，或等 {err.retry_after} 秒后重试。"
-    elif err.error_type == "network":
-        return f"【网络错误】{err.message}"
+    # 失败 → 按 code 返回不同的人类可读提示
+    code = result["code"]
+    msg = result["error"]
+    if code == 401:
+        return f"【认证错误】{msg}"
+    elif code == 404:
+        return f"【仓库不存在】{msg}。请检查用户名和仓库名是否拼写正确（区分大小写）。"
+    elif code == 403:
+        return f"【限流/禁止】{msg}。请稍后再试。"
+    elif code is None:
+        return f"【网络错误】{msg}"
     else:
-        return f"【GitHub API 错误 {err.status_code}】{err.message}"
+        return f"【GitHub API 错误 {code}】{msg}"
 
 
 GET_GITHUB_REPO_INFO_SCHEMA = {
